@@ -40,7 +40,7 @@ Similar to Uniswap V4, Angstrom maintains [a transient mapping of deltas](https:
 
 ### Fee accounting
 
-The implementation for fees is similar Uniswap V3/V4, but modified. Focusing on [`PoolUpdates.sol`](https://github.com/MiloTruck/sorella-notes/blob/main/src/modules/PoolUpdates.sol) and [`GrowthOutsideUpdater.sol`](https://github.com/MiloTruck/sorella-notes/blob/main/src/modules/GrowthOutsideUpdater.sol) to see if reward distribution has any issues would probably a good idea (e.g. rounding issues, edge cases regarding ticks).
+The implementation for fees is similar Uniswap V3/V4, but modified. Focus on [`PoolUpdates.sol`](https://github.com/MiloTruck/sorella-notes/blob/main/src/modules/PoolUpdates.sol) and [`GrowthOutsideUpdater.sol`](https://github.com/MiloTruck/sorella-notes/blob/main/src/modules/GrowthOutsideUpdater.sol) to see if reward distribution has any issues (e.g. rounding issues, edge cases regarding ticks).
 
 It's also worth noting that a large part of the fee implementation [was refactored](https://github.com/SorellaLabs/angstrom/commit/26db3bbd0c49f1581486de5f3976844a9b6a82ca) to mitigate issues found in the Spearbit audit.
 
@@ -48,11 +48,11 @@ It's also worth noting that a large part of the fee implementation [was refactor
 
 Although there shouldn't be any obvious implementation errors, a lingering concern we have is dirty bytes. More specifically:
 
-1. When a variable with a type smaller than 32 bytes is used in assembly, the upper bytes could be dirty if it was downcasted or directly assigned in assembly from a larger type. It would probably be a good idea to look for variables smaller than 32 bytes used in assembly, and trace backwards to reason if its upper bytes could be dirty at that point in time.
+1. When a variable with a type smaller than 32 bytes is used in assembly, the upper bytes could be dirty if it was downcasted or directly assigned in assembly from a larger type. Look for variables smaller than 32 bytes used in assembly, and trace backwards to reason if its upper bytes could be dirty at that point in time.
 2. Usage of scratch space or free memory without writing to them before, as these regions [are not zeroed out](https://docs.soliditylang.org/en/latest/internals/layout_in_memory.html#layout-in-memory).
 
 Examples of such issues found previously:
 
-1. [Pair.sol#L131-L153](https://github.com/MiloTruck/sorella-notes/blob/main/src/types/Pair.sol#L131-L153).
+1. [Pair.sol#L131-L153](https://github.com/MiloTruck/sorella-notes/blob/main/src/types/Pair.sol#L131-L153)
 2. [HookBuffer.sol#L79-L89](https://github.com/MiloTruck/sorella-notes/blob/main/src/types/HookBuffer.sol#L79-L89)
 
