@@ -105,6 +105,26 @@ contract Angstrom is
         return reader;
     }
 
+    /*
+    @note Data read from calldata:
+
+    uuint8 variantByte
+    uint128 quantityIn
+    uint128 quantityOut
+    uint128 maxGasAsset0
+    uint128 gasUsedAsset0
+    uint16 pairIndex
+    address? recipient
+    bytes65? signature 
+    address? from
+    bytes? signature
+
+    If variantMap.recipientIsSome() == true, the recipient address is specified in calldata. Otherwise, tokens
+    are sent to the from address.
+
+    If variantMap.isEcdsa() == true, bytes65 signature is read and the from address is the signer recovered
+    from the signature. Otherwise, (address from | bytes signature) is read. 
+    */
     function _validateAndExecuteToBOrder(
         CalldataReader reader,
         ToBOrderBuffer memory buffer,
@@ -147,18 +167,55 @@ contract Angstrom is
             variantMap.recipientIsSome() ? reader.readAddr() : (reader, address(0));
 
         bytes32 orderHash = typedHasher.hashTypedData(buffer.hash());
+        /*
+        @audit Is anything missing from orderHash?
+
+        orderHash is validated against the signature provided by the user. If anything is missing, the node
+        can freely manipulate the ToB order.
+
+        variantMap.isEcdsa() can be manipulated to use ERC1271 instead of ECDSA (and vice versa) by the node,
+        however, signature verification below shouldn't pass if it is manipulated.
+        */
 
         _invalidateOrderHash(orderHash);
+        /*
+        @audit-issue Spearbit issue 5.3.5
+
+        There might be multiple legitimate orders with the same orderHash in the same block.
+        */
 
         address from;
         (reader, from) = variantMap.isEcdsa()
             ? SignatureLib.readAndCheckEcdsa(reader, orderHash)
             : SignatureLib.readAndCheckERC1271(reader, orderHash);
+        /*
+        @audit Differences from typical implementations.
+
+        Unlike typical implementations where the from address is specified and the signer recovered from ECDSA
+        is checked against the from address, the signer here is used directly.
+
+        Instead of checking is the from address is an EOA/contract and deciding to use ECDSA/ERC1271 based on
+        that, the node can specify how the signature is verified. This makes it possible to use ECDSA for a
+        contract address and ERC1271 for an EOA. 
+
+        Could any issues arise from these differences?
+        */
 
         address to = buffer.recipient;
         assembly {
             to := or(mul(iszero(to), from), to)
         }
+        /*
+        @note This is equivalent to:
+
+        to == 0 -> to = from
+        to != 0 -> to = to
+
+        if (to == 0) to = from
+
+        This makes it not possible to have the to address as address(0).
+        */
+
         _settleOrderIn(
             from, buffer.assetIn, AmountIn.wrap(buffer.quantityIn), variantMap.useInternal()
         );
@@ -188,6 +245,37 @@ contract Angstrom is
         return reader;
     }
 
+    /*
+    @note Data read from calldata:
+
+    bytes1 variantMap
+    uint32 refId
+    uint16 pairIndex
+    uint256 minPrice
+    address? recipient
+    uint24 hookDataLength
+    bytes hookData
+    uint64? nonce
+    uint40? deadline
+    uint128? minQuantityIn
+    uint128? maxQuantityIn
+    uint128 quantity
+    uint128 maxExtraFeeAsset0
+    uint128 extraFeeAsset0
+    bytes65? signature
+    address? from
+    bytes? signature
+
+    If variantMap.recipientIsSome() == true, the recipient address is specified in calldata. Otherwise, tokens
+    are sent to the from address.
+
+    If variantMap.isStanding() == true (ie. standing orders), nonce and deadline are specified.
+
+    If variant.quantitiesPartial() == true, minQuantityIn and maxQuantityIn are specified.
+
+    If isEcdsa(), bytes65 signature is read. from is taken as the signer recovered from the signature
+    otherwise, (address from | bytes signature) is read. 
+    */
     function _validateAndExecuteUserOrder(
         CalldataReader reader,
         UserOrderBuffer memory buffer,
@@ -227,6 +315,15 @@ contract Angstrom is
         (reader, amountIn, amountOut) = buffer.loadAndComputeQuantity(reader, variantMap, price);
 
         bytes32 orderHash = typedHasher.hashTypedData(buffer.structHash(variantMap));
+        /*
+        @audit Is anything missing from orderHash?
+
+        variantMap.isEcdsa() can be manipulated to use ERC1271 instead of ECDSA (and vice versa) by the node,
+        however, signature verification below shouldn't pass if it is manipulated.
+
+        UserBufferOrder.deadline_or_empty isn't set if isStanding() == false, but that's fine as it's not used
+        for flash orders. It's always set for standing orders when used.
+        */
 
         address from;
         (reader, from) = variantMap.isEcdsa()
@@ -238,6 +335,11 @@ contract Angstrom is
             _invalidateNonce(from, buffer.nonce_or_validForBlock);
         } else {
             _invalidateOrderHash(orderHash);
+            /*
+            @audit-issue Spearbit issue 5.3.5
+
+            There might be multiple legitimate orders with the same orderHash in the same block.
+            */
         }
 
         // Push before hook as a potential loan.
@@ -245,11 +347,34 @@ contract Angstrom is
         assembly {
             to := or(mul(iszero(to), from), to)
         }
+        /*
+        @note This is equivalent to:
+
+        to == 0 -> to = from
+        to != 0 -> to = to
+
+        if (to == 0) to = from
+
+        This makes it not possible to have the to address as address(0).
+        */
+
         _settleOrderOut(to, buffer.assetOut, amountOut, variantMap.useInternal());
 
         hook.tryTrigger(from);
+        /*
+        @audit Untrusted external call.
+
+        For user orders, hookAddr can be freely specified by the user. Can a user exploit this to call a
+        malicious contract and perform anything he shouldn't be able to? eg. reentrancy
+        */
 
         _settleOrderIn(from, buffer.assetIn, amountIn, variantMap.useInternal());
+        /*
+        @audit Inflow/outflow sequence is swapped for user orders.
+        
+        For user orders, outflows are performed before inflows. Whereas in ToB orders, inflows are settled
+        before outflows. Does this matter?
+        */
 
         return reader;
     }

@@ -49,6 +49,14 @@ library UserOrderVariantMapLib {
     function exactIn(UserOrderVariantMap variant) internal pure returns (bool) {
         return UserOrderVariantMap.unwrap(variant) & IS_EXACT_IN_BIT != 0;
     }
+    /*
+    @note Use of exactIn flag:
+    
+    If quantitiesPartial() = true, this is unused.
+
+    If quantitiesPartial() = false, this is stored in exactIn_or_minQuantityIn and used to determine
+    whether the quantity specified is the input or output asset amount.
+    */
 
     function isEcdsa(UserOrderVariantMap variant) internal pure returns (bool) {
         return UserOrderVariantMap.unwrap(variant) & IS_ECDSA_BIT != 0;

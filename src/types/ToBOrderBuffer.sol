@@ -34,6 +34,10 @@ library ToBOrderBufferLib {
            "uint256 valid_for_block"
         ")"
     );
+    /*
+    @audit-issue valid_for_block be uint64 instead.
+    Reported in Spearbit 5.3.6
+    */
 
     function init(ToBOrderBuffer memory self) internal view {
         self.typeHash = TOP_OF_BLOCK_ORDER_TYPEHASH;

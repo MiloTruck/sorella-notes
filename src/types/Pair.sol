@@ -44,6 +44,28 @@ library PairLib {
 
     uint256 internal constant ONE_E6 = 1e6;
 
+    /*
+    @note In calldata, pairs are passed as chunks of:
+
+    uint16 index0 | uint16 index1 | uint16 storeIndex | uint256 price1Over0
+
+    where:
+    - index0 and index1 are the indicies in AssetArray
+    - storeIndex is the index of the key of (asset0, asset1) in PoolConfigStore
+
+    PairArray is encoded as:
+    
+    uint224 memoryOffset | uint32 noOfPairs
+
+    In memory, pairs are stored as chunks of:
+
+    bytes32 asset0 | bytes32 asset1 | uint256 tickSpacing | uint256 feeIne6 | uint256 price_10 | uint256 price_01
+
+    in memory, where:
+    - asset0 < asset1
+    - no two chunks have the same (asset0, asset1)
+    - key of (asset0, asset1) must be in PoolConfigStore
+    */
     function readFromAndValidate(CalldataReader reader, AssetArray assets, PoolConfigStore store)
         internal
         view
@@ -56,6 +78,11 @@ library PairLib {
         {
             (reader, end) = reader.readU24End();
             uint256 length = (end.offset() - reader.offset()) / PAIR_CD_BYTES;
+            /*
+            @audit There's no check that end.offset - reader.offset is exactly divisible by PAIR_CD_BYTES
+
+            Can append less than 38 bytes of garbage data behind pair data in calldata
+            */
 
             assembly ("memory-safe") {
                 // WARN: Memory is allocated, but **not cleaned**.
@@ -105,6 +132,24 @@ library PairLib {
                     mstore(add(raw_memoryOffset, PAIR_TICK_SPACING_OFFSET), tickSpacing)
                     mstore(add(raw_memoryOffset, PAIR_FEE_OFFSET), feeIne6)
                 }
+                /*
+                @audit-issue Upper 29 bytes of feeInE6 here are dirty.
+
+                PoolConfigStoreLib.get() fetches feeInE6 using ConfigEntryLib.feeInE6(), which casts the
+                32 bytes of a ConfigEntry into a uint24:
+
+                function feeInE6(ConfigEntry self) internal pure returns (uint24 fee) {
+                    return uint24(ConfigEntry.unwrap(self) >> FEE_OFFSET);
+                }
+
+                This does not clear the upper 29 bytes of feeInE6. When using mstore() here, 
+                raw_memoryOffset + PAIR_FEE_OFFSET will store the entire entry instead of just feeInE6.
+
+                As a result, calculations that mload() feeInE6 from memory in getSwapInfo() below are all
+                affected.
+
+                Found by @philogy here: https://x.com/real_philogy/status/1850755131228168370
+                */
             }
 
             // Load main AB price, compute inverse, store both.
@@ -160,6 +205,19 @@ library PairLib {
             assetIn := mload(add(self, xor(offsetIfZeroToOne, 0x20)))
             assetOut := mload(add(self, offsetIfZeroToOne))
         }
+        /*
+        @note This is equivalent to:
+
+        if zeroToOne = false:
+
+        assetIn := mload(add(self, 32))
+        assetOut := mload(self)
+
+        if zeroToOne = true:
+
+        assetIn := mload(self)
+        assetOut := mload(add(self, 32))
+        */
     }
 
     function getSwapInfo(Pair self, bool zeroToOne)
@@ -172,6 +230,13 @@ library PairLib {
             let offsetIfZeroToOne := shl(5, zeroToOne)
             assetIn := mload(add(self, xor(offsetIfZeroToOne, 0x20)))
             assetOut := mload(add(self, offsetIfZeroToOne))
+            /*
+            @note This is equivalen to:
+            
+            zeroToOne = true -> priceOutVsIn := mload(add(self, 0xa0)), ie. price_01
+            zeroToOne = false -> priceOutVsIn := mload(add(self, 0x80)), ie. price_10
+            */
+
             priceOutVsIn := mload(add(self, add(PAIR_PRICE_10_OFFSET, offsetIfZeroToOne)))
             oneMinusFee := sub(ONE_E6, mload(add(self, PAIR_FEE_OFFSET)))
         }

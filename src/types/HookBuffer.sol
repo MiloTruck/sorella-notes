@@ -29,6 +29,30 @@ library HookBufferLib {
     uint256 internal constant HOOK_SELECTOR_LEFT_ALIGNED =
         0x7407905c00000000000000000000000000000000000000000000000000000000;
 
+    /*
+    @note Hook data is read from calldata as:
+    
+    uint24 hookDataLength | bytes hookData
+
+    where:
+    - first 20 bytes of hookData is the hook address
+    - remaining bytes in hookData is the calldata for the (bytes payload) argument in compose()
+
+    Stored in memory (at memPtr) as:
+
+    [00:04] compose.selector
+    [04:36] from (empty for now, set in tryTrigger())
+    [36:68] 0x40
+    [68:100] payloadLength (hookDataLength - 20)
+    [100:100+hookDataLength-20] payload
+
+    hookData is copied from calldata into memory at memPtr+80 to store payload at memPtr+100. AFterwards,
+    hookAddr is read from memPtr+68 since hookAddr is already at memPtr+80.
+
+    HookBuffer is encoded as:
+
+    uint64 memPtr | address hookAddr | uint32 totalPayloadLength
+    */
     function readFrom(CalldataReader reader, bool noHookToRead)
         internal
         pure
@@ -59,12 +83,23 @@ library HookBufferLib {
                 // struct (hook data length < 20) and 2. The submitting node decides to maliciously
                 // include the order despite it violating the encoding specification.
                 let hookAddr := mload(add(memPtr, 0x44))
+                /*
+                @audit-issue Upper 12 bytes of hookAddr will be dirty bytes.
+                Reported in Spearbit 5.2.1
+                */
 
                 // Setup memory for full call.
                 mstore(memPtr, HOOK_SELECTOR_LEFT_ALIGNED) // 0x00:0x04 selector
                 mstore(add(memPtr, 0x24), 0x40) // 0x24:0x44 calldata offset
                 // Can underflow, which would result in an insanely high length being written to memory.
                 let payloadLength := sub(hookDatalength, 20)
+                /*
+                @audit There's no hookDataLength >= 20 check
+
+                If hookData.length < 20, payloadLength = hookDataLength - 20 will underflow. This shouldn't
+                be an issue as it would cause an OOG when trying to call the hook, since the payload size
+                will be huge.
+                */
                 mstore(add(memPtr, 0x44), payloadLength) // 0x44:0x64 payload length
 
                 // Build packed hook pointer.
@@ -75,6 +110,11 @@ library HookBufferLib {
                         shl(HOOK_MEM_PTR_OFFSET, memPtr),
                         or(shl(HOOK_ADDR_OFFSET, hookAddr), add(payloadLength, 0x64))
                     )
+                /*
+                @note This is equivalent to:
+                
+                memPtr << 192 | hookAddr << 32 | (hookDataLength - 20 + 0x64 )
+                */
             }
         }
 

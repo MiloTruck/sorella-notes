@@ -73,4 +73,9 @@ abstract contract PermitSubmitterHook is IAngstromComposable {
 
         return EXPECTED_HOOK_RETURN_MAGIC;
     }
+    /*
+    @audit-issue Permit front-running issues.
+
+    Report in Spearbit 5.2.3
+    */
 }

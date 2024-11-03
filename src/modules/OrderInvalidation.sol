@@ -22,6 +22,14 @@ abstract contract OrderInvalidation {
         if (block.timestamp > deadline) revert Expired();
     }
 
+    /*
+    @note Layout in memory (assume free memory pointer points to 0x00):
+
+    [0:12] empty
+    [12:32] address owner
+    [32:36] bytes4 UNORDERED_NONCES_SLOT
+    [36:44] uint64 nonce
+    */
     function _invalidateNonce(address owner, uint64 nonce) internal {
         assembly ("memory-safe") {
             mstore(12, nonce)

@@ -71,6 +71,14 @@ library PoolConfigStoreLib {
     uint256 internal constant STORE_DEPLOYER = 0x600b380380600b5f395ff300;
     uint256 internal constant STORE_DEPLOYER_BYTES = 12;
 
+    /*
+    @note Layout in memory (assume free memory pointer points to 0x00):
+
+    [00:20] empty
+    [20:32] STORE_DEPLOYER code
+    [32:32+totalEntryBytes] entry bytes
+    [32+totalEntryBytes:32+totalEntryBytes+32] newEntry
+    */
     function removeIntoNew(PoolConfigStore previousStore, uint256 storeIndex)
         internal
         returns (PoolConfigStore newStore)
@@ -110,6 +118,15 @@ library PoolConfigStoreLib {
 
     /// @dev Create a new store from an old when appending or overriding the entry for the given
     /// asset pair.
+
+    /*
+    @note Layout in memory (assume free memory pointer points to 0x00):
+
+    [00:20] empty
+    [20:32] STORE_DEPLOYER code
+    [32:32+totalEntryBytes] entry bytes
+    [32+totalEntryBytes:32+totalEntryBytes+32] newEntry
+    */
     function setIntoNew(
         PoolConfigStore previousStore,
         address asset0,
@@ -144,6 +161,12 @@ library PoolConfigStoreLib {
                         shl(FEE_OFFSET, and(feeInE6, FEE_MASK))
                     )
                 )
+            /*
+            @note This is equivalent to:
+
+            key | (tickSpacing & 0xffff) << 24 | (feeInE6 & 0xffffff) << 0
+            */
+
             // Search pool to see if it was already configured, if so replace the entry.
             let entriesEnd := add(entryOffset, totalEntryBytes)
             for {} lt(entryOffset, entriesEnd) { entryOffset := add(entryOffset, 0x20) } {
@@ -153,8 +176,23 @@ library PoolConfigStoreLib {
                     break
                 }
             }
+            /*
+            @note This is equivalent to:
+
+            for (; entryOffset < entryOffset + totalEntryBytes; entryOffset += 32) {
+                entry = mem[entryOffset:entryOffset+32]
+                if entry.key == key -> mem[entryOffset:entryOffset+32] = newEntry
+            }
+            */
+
             // Increase `totalEntryBytes` by 0x20 if we broke in the loop.
             totalEntryBytes := add(totalEntryBytes, shl(5, eq(entryOffset, entriesEnd)))
+            /*
+            @note This is equivalent to:
+
+            if entryOffset == entriesEnd -> totalEntryBytes += 32
+            */
+
             // Append the entry to the end incase we include it (`totalEntryBytes` will ensure we don't
             // if the entry was found & replaced).
             mstore(entriesEnd, newEntry)
@@ -179,7 +217,19 @@ library PoolConfigStoreLib {
         view
         returns (int24 tickSpacing, uint24 feeInE6)
     {
+        /*
+        @audit-issue There's no index < self.len() check.
+
+        Report in Spearbit 5.5.8, although it's worth looking into whether this could cause any issues.
+        */
+
         ConfigEntry entry;
+        /*
+        @note Entries are encoded as:
+
+        bytes27 key | bytes2 tickSpacing | bytes3 feeInE6
+        */
+
         assembly {
             // Copy from store into scratch space.
             extcodecopy(self, 0x00, add(STORE_HEADER_SIZE, mul(ENTRY_SIZE, index)), ENTRY_SIZE)
@@ -205,4 +255,7 @@ library PoolConfigStoreLib {
             key := shl(HASH_TO_STORE_KEY_SHIFT, keccak256(0x00, 0x40))
         }
     }
+    /*
+    @note Key is the last 27 bytes of keccak256(abi.encode(asset0, asset1))
+    */
 }

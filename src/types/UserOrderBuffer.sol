@@ -35,6 +35,10 @@ library UserOrderBufferLib {
 
     uint256 internal constant VARIANT_MAP_BYTES = 1;
     uint256 internal constant REF_ID_MEM_OFFSET = 0x3c;
+    /*
+    @note This is 64 - 4 as only 4 bytes of refId are copied directly from calldata.
+    */
+
     uint256 internal constant REF_ID_BYTES = 4;
 
     uint256 internal constant NONCE_MEM_OFFSET = 0x160;
@@ -135,6 +139,15 @@ library UserOrderBufferLib {
                 ? EXACT_STANDING_ORDER_TYPEHASH
                 : EXACT_FLASH_ORDER_TYPEHASH;
         }
+        /*
+        @note All possible cases:
+
+        !quantitiesPartial && !isStanding -> EXACT_FLASH_ORDER_TYPEHASH
+        !quantitiesPartial && isStanding -> EXACT_STANDING_ORDER_TYPEHASH
+        quantitiesPartial && !isStanding -> PARTIAL_FLASH_ORDER_TYPEHASH
+        quantitiesPartial && isStanding -> PARTIAL_STANDING_ORDER_TYPEHASH
+        */
+
 
         self.useInternal = variantMap.useInternal();
 
@@ -147,11 +160,28 @@ library UserOrderBufferLib {
         returns (bytes32 hashed)
     {
         uint256 structLength = variant.isStanding() ? STANDING_ORDER_BYTES : FLASH_ORDER_BYTES;
+        /*
+        @note deadline_or_empty are only used for standing orders.
+
+        If isStanding() == true, include deadline_or_empty, otherwise leave it out.
+        */
+
         assembly ("memory-safe") {
             hashed := keccak256(self, structLength)
         }
     }
 
+    /*
+    @note Data read from calldata:
+
+    uint128? minQuantityIn
+    uint128? maxQuantityIn
+    uint128 quantity
+    uint128 maxExtraFeeAsset0
+    uint128 extraFeeAsset0
+
+    If variant.quantitiesPartial() == true, minQuantityIn and maxQuantityIn are specified.
+    */
     function loadAndComputeQuantity(
         UserOrderBuffer memory self,
         CalldataReader reader,
@@ -203,6 +233,28 @@ library UserOrderBufferLib {
                 quantityIn = price.convert(quantityOut);
             }
         }
+        /*
+        @audit-issue Price loaded from getSwapInfo() is wrong.
+
+        If variant.zeroForOne() == true and variant.specifyingInput() == true:
+
+        price_01 = (asset1 price / asset1 decimals) * 1e27 / (asset0 price / asset0 decimals)
+
+        quantity1 = quantity0 * price_01 / 1e27
+        = quantity0 * (asset1 price / asset1 decimals) * 1e27 / (asset0 price / asset0 decimals) / 1e27
+        = quantity0 * (asset1 price / asset1 decimals) / (asset0 price / asset0 decimals)
+        = quantity0 * asset1 price / asset1 decimals / asset0 price * asset0 decimals
+
+        Correct calculation would be to use price_10, which results in :
+
+        quantity1 = quantity0 * asset0 price / asset0 decimals / asset1 price * asset1 decimals
+
+        Reported in Spearbit 5.2.2
+        */
+        /*
+        @audit-issue extraFeeAsset0 should be added to quantityIn instead of subtracted.
+        Reported in Spearbit 5.1.2 
+        */
 
         return (reader, quantityIn, quantityOut);
     }

@@ -34,6 +34,11 @@ abstract contract Settlement is UniConsumer {
         asset.safeTransferFrom(msg.sender, address(this), amount);
         _balances[asset][msg.sender] += amount;
     }
+    /*
+    @audit-issue safeTransferLib doesn't check for code existence.
+
+    Reported in Spearbit 5.1.5
+    */
 
     /// @notice Pulls tokens from the caller and credits them to the `to` address for trading.
     /// @dev WARN: Assumes `asset` charges 0 fees upon transfers and is not rebasing.
@@ -122,6 +127,11 @@ abstract contract Settlement is UniConsumer {
         bundleDeltas.add(asset, amount);
         if (useInternal) {
             _balances[from][asset] -= amount;
+            /*
+            @audit-issue Mapping is inverted, from and asset should be swapped.
+
+            Reported in Spearbit 5.1.4
+            */
         } else {
             asset.safeTransferFrom(from, address(this), amount);
         }

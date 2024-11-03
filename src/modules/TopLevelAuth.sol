@@ -50,11 +50,23 @@ abstract contract TopLevelAuth is UniConsumer {
         if (PoolConfigStore.unwrap(store) != expectedStore) revert IndexMayHaveChanged();
         _configStore = store.removeIntoNew(storeIndex);
     }
+    /*
+    @audit Are there any issues if a pool is removed from the protocol?
+
+    Liquidity isn't stuck as LPs should still be able to remove liquidity with beforeRemoveLiquidity() hook.
+    */
 
     /// @dev Allow controller to set parameters of a given pool.
     function configurePool(address assetA, address assetB, uint16 tickSpacing, uint24 feeInE6)
         external
     {
+        /*
+        @audit No tickSpacing < MAX_TICK_SPACING check here.
+
+        A pool with tickSpacing greater than Uniswap's MAX_TICK_SPACING can be configured, but there
+        shouldn't be any issue as the pool can't be initialized anyways.
+        */
+
         _onlyController();
         _configStore = _configStore.setIntoNew(assetA, assetB, tickSpacing, feeInE6);
     }

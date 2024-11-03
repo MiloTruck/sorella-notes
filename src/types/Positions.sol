@@ -15,6 +15,16 @@ using PositionsLib for Positions global;
 
 /// @author philogy <https://github.com/philogy>
 library PositionsLib {
+    
+    /*
+    @note Layout in memory:
+
+    [00:12] empty
+    [12:32] owner
+    [32:35] lowerTick
+    [35:38] upperTick
+    [38:70] salt
+    */
     function get(
         Positions storage self,
         PoolId id,
@@ -36,6 +46,11 @@ library PositionsLib {
             positionKey := keccak256(12, add(add(3, 3), add(20, 32)))
             // Upper bytes of free memory pointer cleared.
             mstore(0x26, 0)
+            /*
+            @note Overwriting the free memory pointer and restoring it aftwards is memory safe.
+
+            https://docs.soliditylang.org/en/latest/assembly.html#advanced-safe-use-of-memory
+            */
         }
         position = self.positions[id][positionKey];
     }

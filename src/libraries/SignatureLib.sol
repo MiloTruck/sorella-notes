@@ -10,6 +10,15 @@ library SignatureLib {
 
     uint256 internal constant ECRECOVER_ADDR = 1;
 
+    /*
+    @note Layout in memory (assume free memory pointer points to 0x00):
+    
+    [00:32] hash
+    [32:63] empty
+    [63:128] bytes1 v | bytes32 r | bytes32 s 
+
+    ecrecover precompile is used: https://www.evm.codes/precompiled?fork=cancun#0x01
+    */
     function readAndCheckEcdsa(CalldataReader reader, bytes32 hash)
         internal
         view

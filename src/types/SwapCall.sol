@@ -19,6 +19,9 @@ struct SwapCall {
     /* 0x100 */ uint256 hookDataRelativeOffset;
     /* 0x120 */ uint256 hookDataLength;
 }
+/*
+@note hookDataLength is never set, so swap() is always called with no hook data.
+*/
 
 using SwapCallLib for SwapCall global;
 
@@ -54,6 +57,11 @@ library SwapCallLib {
         assembly ("memory-safe") {
             id := keccak256(add(self, POOL_KEY_OFFSET), POOL_KEY_SIZE)
         }
+        /*
+        @note This is equivalent to:
+        
+        keccak256(asset0 || asset1 || fee || tickSpacing || hook)
+        */
     }
 
     function call(SwapCall memory self, IPoolManager uni) internal {
@@ -64,6 +72,10 @@ library SwapCallLib {
                 let free := mload(0x40)
                 returndatacopy(free, 0, returndatasize())
                 return(0, returndatasize())
+                /*
+                @audit-issue This should be revert() instead of return()
+                Reported in Spearbit 5.1.3
+                */
             }
         }
     }

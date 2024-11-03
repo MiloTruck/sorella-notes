@@ -28,6 +28,19 @@ library AssetLib {
     uint256 internal constant LENGTH_MASK = 0xffffffff;
     uint256 internal constant CALLDATA_PTR_OFFSET = 32;
 
+    /*
+    @note AssetArray is encoded as:
+
+    uint224 calldataOffset | uint32 noOfAssets
+
+    Assets is stored in calldata as:
+
+    address addr | uint128 save | uint128 take | uint128 settle
+
+    Where:
+    - addr cannot be address(0)
+    - addr of a previous check < addr of a next chunk
+    */
     function readFromAndValidate(CalldataReader reader)
         internal
         pure
@@ -37,6 +50,12 @@ library AssetLib {
         (reader, end) = reader.readU24End();
 
         uint256 length = (end.offset() - reader.offset()) / ASSET_CD_BYTES;
+        /*
+        @note There's o check that end.offset - reader.offset is exactly divisible by ASSET_CD_BYTES
+
+        It's possible to append less than 68 bytes of garbage bytes in calldata after assets, but this
+        doesn't seem to cause any issues.
+        */
 
         assets = AssetArray.wrap((reader.offset() << CALLDATA_PTR_OFFSET) | length);
 

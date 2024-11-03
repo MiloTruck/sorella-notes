@@ -8,6 +8,9 @@ import {TickLib} from "../libraries/TickLib.sol";
 
 /// @dev Should accomodate all possible tick values.
 uint256 constant REWARD_GROWTH_SIZE = 16777216;
+/*
+@note This is equal to type(uint24).max + 1, to accomodate tick 0
+*/
 
 struct PoolRewards {
     uint256[REWARD_GROWTH_SIZE] rewardGrowthOutside;

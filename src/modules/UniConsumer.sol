@@ -27,6 +27,9 @@ abstract contract UniConsumer {
             revert MissingHookPermissions();
         }
     }
+    /*
+    @note The last 14 bits of the address are hook flags.
+    */
 
     function _c(address addr) internal pure returns (Currency) {
         return Currency.wrap(addr);

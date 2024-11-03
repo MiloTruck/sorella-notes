@@ -55,6 +55,13 @@ abstract contract PoolUpdates is
         IPoolManager.ModifyLiquidityParams calldata params,
         bytes calldata
     ) external override returns (bytes4) {
+        /*
+        @audit-issue No check that pool is in PoolConfigStore.
+
+        Can still add/remove liquidity even after a pool is removed by the protocol.
+        Reported in Spearbit 5.5.10, but worth looking into whether this could cause more issues.
+        */
+
         _onlyUniV4();
 
         uint256 liquidityDelta = uint256(params.liquidityDelta);
@@ -90,8 +97,19 @@ abstract contract PoolUpdates is
         } else {
             newGrowthInside = rewards.globalGrowth - lowerGrowth - upperGrowth;
         }
+        /*
+        @audit-issue Initialization for ticks ticks here is incorrect.
+        Reported in Spearbit 5.1.1
+        */
 
         uint256 newPastRewards = newGrowthInside.mulWad(liquidityDelta);
+        /*
+        @audit-issue Using WAD math for rewards could have precision issues.
+
+        From @philogy:
+        > Large rounding errors diminishing LP rewards were discovered during further testing.
+        */
+        
         position.pastRewards += newPastRewards;
 
         return this.beforeAddLiquidity.selector;
